@@ -7,9 +7,6 @@ import numpy as np
 from datetime import datetime, timezone, timedelta
 import hopsworks
 
-# ----------------------------------------------------------------------
-# CONFIG
-# ----------------------------------------------------------------------
 try:
     from google.colab import userdata
     HOPSWORKS_API_KEY = userdata.get("HOPSWORKS_API_KEY")
@@ -29,12 +26,11 @@ CITIES = {
     "quetta":     (30.1798, 66.9750),
 }
 
-BACKFILL = True
+BACKFILL = os.environ.get("BACKFILL", "false").lower() == "true"
 BACKFILL_DAYS = 730
 
 FG_NAME = "aqi_features"
 FG_VERSION = 6
-
 
 def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
     print(f"Fetching data for {city_name} ({start_date} to {end_date})...")
@@ -71,7 +67,6 @@ def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
     df = pd.merge(df_aq, df_weather, on="time", how="inner")
     return df
 
-
 def engineer_features(df: pd.DataFrame, city_name: str, city_id: int) -> pd.DataFrame:
     df["time"] = pd.to_datetime(df["time"])
     df = df.sort_values("time").reset_index(drop=True)
@@ -97,7 +92,6 @@ def engineer_features(df: pd.DataFrame, city_name: str, city_id: int) -> pd.Data
     df = df.drop(columns=["time"]).dropna().reset_index(drop=True)
     return df
 
-
 def write_to_feature_store(df: pd.DataFrame):
     project = hopsworks.login(api_key_value=HOPSWORKS_API_KEY)
     fs = project.get_feature_store()
@@ -113,7 +107,6 @@ def write_to_feature_store(df: pd.DataFrame):
     )
     fg.insert(df, write_options={"wait_for_job": True})
     print(f"Inserted {len(df)} rows into feature group '{FG_NAME}' v{FG_VERSION}.")
-
 
 def main():
     end_date = datetime.now(timezone.utc).date()
@@ -133,7 +126,6 @@ def main():
     combined = pd.concat(all_frames, ignore_index=True)
     print(f"Prepared {len(combined)} feature rows across {len(CITIES)} cities.")
     write_to_feature_store(combined)
-
 
 if __name__ == "__main__":
     main()
