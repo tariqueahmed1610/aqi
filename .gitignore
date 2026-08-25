@@ -1,0 +1,13 @@
+.env
+*.key
+
+model_dir/
+model_dir_*/
+*.csv
+*.pkl
+
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+.DS_Store
