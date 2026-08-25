@@ -35,6 +35,23 @@ FG_VERSION = 6
 def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
     print(f"Fetching data for {city_name} ({start_date} to {end_date})...")
 
+def get_with_retries(url, params, max_attempts=4, timeout=90):
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.get(url, params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            wait = 5 * attempt
+            print(f"  Request failed (attempt {attempt}/{max_attempts}): {e}. Retrying in {wait}s...")
+            time.sleep(wait)
+    raise last_error
+
+def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
+    print(f"Fetching data for {city_name} ({start_date} to {end_date})...")
+
     aq_url = "https://air-quality-api.open-meteo.com/v1/air-quality"
     aq_params = {
         "latitude": latitude,
@@ -47,8 +64,7 @@ def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
         ],
         "timezone": "UTC",
     }
-    aq_resp = requests.get(aq_url, params=aq_params, timeout=60)
-    aq_resp.raise_for_status()
+    aq_resp = get_with_retries(aq_url, aq_params)
     df_aq = pd.DataFrame(aq_resp.json()["hourly"])
 
     weather_url = "https://archive-api.open-meteo.com/v1/archive"
@@ -60,8 +76,7 @@ def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
         "hourly": ["temperature_2m", "relative_humidity_2m", "wind_speed_10m"],
         "timezone": "UTC",
     }
-    w_resp = requests.get(weather_url, params=weather_params, timeout=60)
-    w_resp.raise_for_status()
+    w_resp = get_with_retries(weather_url, weather_params)
     df_weather = pd.DataFrame(w_resp.json()["hourly"])
 
     df = pd.merge(df_aq, df_weather, on="time", how="inner")
