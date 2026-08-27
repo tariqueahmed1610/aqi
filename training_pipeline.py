@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import joblib
 import numpy as np
@@ -11,9 +12,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import xgboost as xgb
 import shap
 
-# ----------------------------------------------------------------------
-# CONFIG
-# ----------------------------------------------------------------------
 try:
     from google.colab import userdata
     HOPSWORKS_API_KEY = userdata.get("HOPSWORKS_API_KEY")
@@ -26,12 +24,10 @@ if not HOPSWORKS_API_KEY:
     )
 
 FG_NAME = "aqi_features"
-FG_VERSION = 6  # must match the version created by feature_pipeline.py
+FG_VERSION = 6
 FV_NAME = "aqi_fv"
-FV_VERSION = 3  # auto-incremented here since the query changed (added city_id)
+FV_VERSION = 3
 
-# city_id added as a feature so one model can serve all 5 cities -
-# order must exactly match CITIES in feature_pipeline.py
 FEATURES = [
     "pm10", "pm2_5", "carbon_monoxide", "nitrogen_dioxide",
     "sulphur_dioxide", "ozone", "us_aqi", "temperature_2m",
@@ -40,14 +36,9 @@ FEATURES = [
     "aqi_rate_of_change", "city_id",
 ]
 
-# One target per forecast day
 HORIZONS = ["target_aqi_24h", "target_aqi_48h", "target_aqi_72h"]
 HORIZON_LABELS = {"target_aqi_24h": "24h", "target_aqi_48h": "48h", "target_aqi_72h": "72h"}
 
-
-# ----------------------------------------------------------------------
-# 1. LOAD DATA FROM THE FEATURE STORE (via a Feature View, once)
-# ----------------------------------------------------------------------
 def load_all_data():
     project = hopsworks.login(api_key_value=HOPSWORKS_API_KEY)
     fs = project.get_feature_store()
@@ -57,12 +48,6 @@ def load_all_data():
 
     query = fg.select(FEATURES + HORIZONS + ["event_time"])
 
-    # Still create the Feature View, so the model registry entry can be
-    # linked to it for lineage - but DON'T use fv.training_data() to
-    # fetch the actual data. Its X/y label-splitting has proven
-    # unreliable (column names/order don't always match what you passed
-    # in). query.read() returns the exact columns we asked for, by
-    # name, with no hidden splitting - much safer.
     fv = fs.get_or_create_feature_view(
         name=FV_NAME,
         version=FV_VERSION,
@@ -72,18 +57,10 @@ def load_all_data():
 
     df = query.read()
 
-    # time-ordered split (80/20) - no random shuffling, this is a
-    # forecasting problem so the test set must come after the train set.
-    # Cities share the event_time range, so sorting all rows together
-    # keeps the split a genuine "future" holdout for every city at once.
     df = df.sort_values("event_time").reset_index(drop=True)
 
     return mr, fv, df
 
-
-# ----------------------------------------------------------------------
-# 2. TRAIN + COMPARE MODELS FOR ONE HORIZON
-# ----------------------------------------------------------------------
 def evaluate(name, model, X_test, y_test):
     preds = model.predict(X_test)
     metrics = {
@@ -93,7 +70,6 @@ def evaluate(name, model, X_test, y_test):
     }
     print(f"  {name}: MAE={metrics['MAE']}  RMSE={metrics['RMSE']}  R2={metrics['R2_Score']}")
     return metrics
-
 
 def train_and_compare(X_train, X_test, y_train, y_test):
     candidates = {}
@@ -119,10 +95,6 @@ def train_and_compare(X_train, X_test, y_train, y_test):
     best_model, best_metrics = candidates[best_name]
     return best_name, best_model, best_metrics
 
-
-# ----------------------------------------------------------------------
-# 3. SHAP EXPLANATION (best model only)
-# ----------------------------------------------------------------------
 def explain(best_name, best_model, X_test):
     sample = X_test.iloc[:500]
     try:
@@ -144,10 +116,6 @@ def explain(best_name, best_model, X_test):
     except Exception as e:
         print(f"  SHAP explanation skipped ({e})")
 
-
-# ----------------------------------------------------------------------
-# 4. REGISTER BEST MODEL FOR THIS HORIZON
-# ----------------------------------------------------------------------
 def register_model(mr, horizon_label, best_name, best_model, best_metrics, fv):
     model_dir = f"model_dir_{horizon_label}"
     os.makedirs(model_dir, exist_ok=True)
@@ -164,9 +132,20 @@ def register_model(mr, horizon_label, best_name, best_model, best_metrics, fv):
         description=f"{best_name} model predicting AQI {horizon_label} ahead, all 5 cities (city_id feature).",
         feature_view=fv,
     )
-    aqi_model.save(model_dir)
-    print(f"  Registered as 'karachi_aqi_predictor_{horizon_label}' ({best_name}).")
 
+    max_attempts = 3
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            aqi_model.save(model_dir)
+            print(f"  Registered as 'karachi_aqi_predictor_{horizon_label}' ({best_name}).")
+            return
+        except Exception as e:
+            last_error = e
+            wait = 20 * attempt
+            print(f"  Model save failed (attempt {attempt}/{max_attempts}): {e}. Retrying in {wait}s...")
+            time.sleep(wait)
+    raise last_error
 
 def main():
     mr, fv, df = load_all_data()
@@ -188,7 +167,6 @@ def main():
         print(f"  Best: {best_name} (RMSE={best_metrics['RMSE']})")
         explain(best_name, best_model, X_test)
         register_model(mr, horizon_label, best_name, best_model, best_metrics, fv)
-
 
 if __name__ == "__main__":
     main()
