@@ -1,4 +1,3 @@
-
 import os
 import time
 import requests
@@ -120,8 +119,20 @@ def write_to_feature_store(df: pd.DataFrame):
         online_enabled=False,
         time_travel_format="HUDI",
     )
-    fg.insert(df, write_options={"wait_for_job": True})
-    print(f"Inserted {len(df)} rows into feature group '{FG_NAME}' v{FG_VERSION}.")
+
+    max_attempts = 3
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            fg.insert(df, write_options={"wait_for_job": True})
+            print(f"Inserted {len(df)} rows into feature group '{FG_NAME}' v{FG_VERSION}.")
+            return
+        except Exception as e:
+            last_error = e
+            wait = 15 * attempt
+            print(f"  Insert failed (attempt {attempt}/{max_attempts}): {e}. Retrying in {wait}s...")
+            time.sleep(wait)
+    raise last_error
 
 def main():
     end_date = datetime.now(timezone.utc).date()
