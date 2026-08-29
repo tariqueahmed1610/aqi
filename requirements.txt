@@ -12,3 +12,4 @@ joblib
 streamlit
 seaborn
 plotly>=5.18.0
+protobuf>=5.29.0
