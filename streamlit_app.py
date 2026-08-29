@@ -55,7 +55,7 @@ def categorize_aqi(value):
 
 @st.cache_resource(show_spinner=False)
 def get_project():
-    return hopsworks.login(api_key_value=HOPSWORKS_API_KEY)
+    return hopsworks.login(host="eu-west.cloud.hopsworks.ai", api_key_value=HOPSWORKS_API_KEY)
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_latest_features():
