@@ -9,3 +9,6 @@ scikit-learn
 xgboost
 shap
 joblib
+streamlit
+seaborn
+plotly>=5.18.0
