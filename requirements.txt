@@ -1,8 +1,4 @@
-hopsworks==5.0.*
-deltalake<=0.17.4
-fsspec<=2024.3.1
-confluent-kafka
-nest_asyncio
+hopsworks[python]==5.0.*
 pandas
 numpy
 requests
