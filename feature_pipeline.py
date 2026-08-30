@@ -31,9 +31,6 @@ BACKFILL_DAYS = 730
 FG_NAME = "aqi_features"
 FG_VERSION = 6
 
-def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
-    print(f"Fetching data for {city_name} ({start_date} to {end_date})...")
-
 def get_with_retries(url, params, max_attempts=4, timeout=90):
     last_error = None
     for attempt in range(1, max_attempts + 1):
@@ -48,7 +45,7 @@ def get_with_retries(url, params, max_attempts=4, timeout=90):
             time.sleep(wait)
     raise last_error
 
-def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
+def fetch_raw_data(city_name, latitude, longitude, start_date, end_date, use_forecast_api=False):
     print(f"Fetching data for {city_name} ({start_date} to {end_date})...")
 
     aq_url = "https://air-quality-api.open-meteo.com/v1/air-quality"
@@ -66,15 +63,30 @@ def fetch_raw_data(city_name, latitude, longitude, start_date, end_date):
     aq_resp = get_with_retries(aq_url, aq_params)
     df_aq = pd.DataFrame(aq_resp.json()["hourly"])
 
-    weather_url = "https://archive-api.open-meteo.com/v1/archive"
-    weather_params = {
-        "latitude": latitude,
-        "longitude": longitude,
-        "start_date": str(start_date),
-        "end_date": str(end_date),
-        "hourly": ["temperature_2m", "relative_humidity_2m", "wind_speed_10m"],
-        "timezone": "UTC",
-    }
+    if use_forecast_api:
+        # The historical archive API lags several days behind real time
+        # (it's reanalysis-based, not live). For recent/incremental
+        # fetches, the forecast API's past_days param gives near-real-time
+        # weather instead, avoiding that lag.
+        weather_url = "https://api.open-meteo.com/v1/forecast"
+        weather_params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "past_days": 4,
+            "forecast_days": 1,
+            "hourly": ["temperature_2m", "relative_humidity_2m", "wind_speed_10m"],
+            "timezone": "UTC",
+        }
+    else:
+        weather_url = "https://archive-api.open-meteo.com/v1/archive"
+        weather_params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+            "hourly": ["temperature_2m", "relative_humidity_2m", "wind_speed_10m"],
+            "timezone": "UTC",
+        }
     w_resp = get_with_retries(weather_url, weather_params)
     df_weather = pd.DataFrame(w_resp.json()["hourly"])
 
@@ -143,7 +155,7 @@ def main():
 
     all_frames = []
     for city_id, (city_name, (lat, lon)) in enumerate(CITIES.items()):
-        raw = fetch_raw_data(city_name, lat, lon, start_date, end_date)
+        raw = fetch_raw_data(city_name, lat, lon, start_date, end_date, use_forecast_api=not BACKFILL)
         features = engineer_features(raw, city_name, city_id)
         print(f"  {city_name}: {len(features)} feature rows.")
         all_frames.append(features)
