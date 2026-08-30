@@ -1,0 +1,11 @@
+hopsworks>=3.7.0
+deltalake<=0.17.4
+fsspec<=2024.3.1
+confluent-kafka
+pandas
+numpy
+requests
+scikit-learn
+xgboost
+shap
+joblib
