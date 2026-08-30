@@ -92,6 +92,15 @@ def fetch_raw_data(city_name, latitude, longitude, start_date, end_date, use_for
     df_weather = pd.DataFrame(w_resp.json()["hourly"])
 
     df = pd.merge(df_aq, df_weather, on="time", how="inner")
+
+    # Both APIs are forecast-capable and can return hours that haven't
+    # happened yet (e.g. later today, or tomorrow). Only keep rows that
+    # have actually occurred - anything else isn't real observed data
+    # yet, just a forecast, and shouldn't be treated as "current".
+    now_utc = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    df["time"] = pd.to_datetime(df["time"])
+    df = df[df["time"] <= now_utc].reset_index(drop=True)
+
     return df
 
 FEATURE_COLUMNS = [

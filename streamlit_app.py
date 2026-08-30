@@ -64,6 +64,9 @@ def load_latest_features():
     fg = fs.get_feature_group(FG_NAME, version=FG_VERSION)
     df = fg.select_all().read()
     df["datetime"] = pd.to_datetime(df["event_time"], unit="ms")
+    # Stored in UTC; convert to Pakistan time (UTC+5) for display since
+    # all 5 cities are in Pakistan.
+    df["datetime_local"] = df["datetime"] + pd.Timedelta(hours=5)
 
     numeric_cols = [c for c in FEATURES if c in df.columns]
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
@@ -357,7 +360,7 @@ def main():
                         {current_cat}
                     </span>
                 </div>
-                <div class="forecast-sub">Last updated: {latest_row['datetime'].strftime('%b %d, %Y at %I:%M %p')}</div>
+                <div class="forecast-sub">Last updated: {latest_row['datetime_local'].strftime('%b %d, %Y at %I:%M %p')} PKT</div>
             </div>
             """,
             unsafe_allow_html=True,
