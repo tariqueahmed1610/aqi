@@ -24,9 +24,9 @@ if not HOPSWORKS_API_KEY:
     )
 
 FG_NAME = "aqi_features"
-FG_VERSION = 6
+FG_VERSION = 7
 FV_NAME = "aqi_fv"
-FV_VERSION = 3
+FV_VERSION = 4  # new FG version needs a fresh feature view too
 
 FEATURES = [
     "pm10", "pm2_5", "carbon_monoxide", "nitrogen_dioxide",

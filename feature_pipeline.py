@@ -30,7 +30,7 @@ BACKFILL = os.environ.get("BACKFILL", "false").lower() == "true"
 BACKFILL_DAYS = 730
 
 FG_NAME = "aqi_features"
-FG_VERSION = 6
+FG_VERSION = 7  # v6's schema locked target columns as non-nullable; v7 allows nulls for unresolved future targets
 
 def get_with_retries(url, params, max_attempts=4, timeout=90):
     last_error = None
