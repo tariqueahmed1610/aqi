@@ -1,3 +1,4 @@
+
 import os
 import time
 import requests
@@ -93,6 +94,14 @@ def fetch_raw_data(city_name, latitude, longitude, start_date, end_date, use_for
     df = pd.merge(df_aq, df_weather, on="time", how="inner")
     return df
 
+FEATURE_COLUMNS = [
+    "pm10", "pm2_5", "carbon_monoxide", "nitrogen_dioxide",
+    "sulphur_dioxide", "ozone", "us_aqi", "temperature_2m",
+    "relative_humidity_2m", "wind_speed_10m", "hour",
+    "day_of_week", "month", "pm2_5_lag_1h", "pm2_5_lag_24h",
+    "aqi_rate_of_change", "city_id",
+]
+
 def engineer_features(df: pd.DataFrame, city_name: str, city_id: int) -> pd.DataFrame:
     df["time"] = pd.to_datetime(df["time"])
     df = df.sort_values("time").reset_index(drop=True)
@@ -105,6 +114,11 @@ def engineer_features(df: pd.DataFrame, city_name: str, city_id: int) -> pd.Data
     df["pm2_5_lag_24h"] = df["pm2_5"].shift(24)
     df["aqi_rate_of_change"] = df["us_aqi"].diff()
 
+    # Targets are unknown for the most recent hours (the future hasn't
+    # happened yet) - that's expected and fine. We keep those rows
+    # (with NaN targets) so the feature store always has the LATEST
+    # conditions available for prediction; training filters out rows
+    # with unknown targets separately, per horizon.
     df["target_aqi_24h"] = df["us_aqi"].shift(-24)
     df["target_aqi_48h"] = df["us_aqi"].shift(-48)
     df["target_aqi_72h"] = df["us_aqi"].shift(-72)
@@ -115,7 +129,11 @@ def engineer_features(df: pd.DataFrame, city_name: str, city_id: int) -> pd.Data
     df["id"] = df["city"] + "_" + df["time"].astype(str)
     df["event_time"] = (df["time"].astype("int64") // 10**6).astype("int64")
 
-    df = df.drop(columns=["time"]).dropna().reset_index(drop=True)
+    df = df.drop(columns=["time"])
+    # Only drop rows missing actual FEATURE values (e.g. the first 24h
+    # of a fresh backfill, before lag features have enough history).
+    # Do NOT drop rows just because a future target isn't known yet.
+    df = df.dropna(subset=FEATURE_COLUMNS).reset_index(drop=True)
     return df
 
 def write_to_feature_store(df: pd.DataFrame):

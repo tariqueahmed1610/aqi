@@ -149,14 +149,19 @@ def register_model(mr, horizon_label, best_name, best_model, best_metrics, fv):
 
 def main():
     mr, fv, df = load_all_data()
-    split_idx = int(len(df) * 0.80)
 
     for target_col in HORIZONS:
         horizon_label = HORIZON_LABELS[target_col]
         print(f"\n=== Horizon: {horizon_label} (target: {target_col}) ===")
 
-        train_df = df.iloc[:split_idx]
-        test_df = df.iloc[split_idx:]
+        # Rows near "now" don't have a known target yet (the future
+        # hasn't happened) - only train/evaluate on rows where the
+        # actual outcome is known.
+        known_df = df.dropna(subset=[target_col]).reset_index(drop=True)
+        split_idx = int(len(known_df) * 0.80)
+
+        train_df = known_df.iloc[:split_idx]
+        test_df = known_df.iloc[split_idx:]
 
         X_train, y_train = train_df[FEATURES], train_df[target_col]
         X_test, y_test = test_df[FEATURES], test_df[target_col]
