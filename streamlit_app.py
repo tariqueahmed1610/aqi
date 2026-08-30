@@ -18,7 +18,7 @@ if not HOPSWORKS_API_KEY:
         HOPSWORKS_API_KEY = ""
 
 FG_NAME = "aqi_features"
-FG_VERSION = 7
+FG_VERSION = 8
 
 CITY_INFO = {
     "karachi":   {"label": "Karachi"},

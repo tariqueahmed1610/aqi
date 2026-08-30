@@ -1,3 +1,4 @@
+
 import os
 import time
 import json
@@ -24,9 +25,9 @@ if not HOPSWORKS_API_KEY:
     )
 
 FG_NAME = "aqi_features"
-FG_VERSION = 7
+FG_VERSION = 8
 FV_NAME = "aqi_fv"
-FV_VERSION = 4  # new FG version needs a fresh feature view too
+FV_VERSION = 5
 
 FEATURES = [
     "pm10", "pm2_5", "carbon_monoxide", "nitrogen_dioxide",
