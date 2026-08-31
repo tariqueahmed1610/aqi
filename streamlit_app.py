@@ -78,40 +78,57 @@ def load_city_models(city_name):
     model_metadata = {}
 
     for horizon in HORIZONS:
-        model_name = f"{city_name.lower()}_aqi_predictor_{horizon}"
-        try:
-            best_model = mr.get_best_model(model_name, "RMSE", "min")
-            model_dir = best_model.download()
-            models[horizon] = joblib.load(os.path.join(model_dir, "aqi_model.pkl"))
+        candidate_names = [
+            f"{city_name.lower()}_aqi_predictor_{horizon}",
+            f"aqi_predictor_{horizon}",
+            f"karachi_aqi_predictor_{horizon}",
+        ]
+        
+        best_model = None
+        for name in candidate_names:
+            try:
+                best_model = mr.get_best_model(name, "RMSE", "min")
+                if best_model is not None:
+                    break
+            except Exception:
+                continue
 
-            metrics = {}
-            metrics_json_path = os.path.join(model_dir, "metrics.json")
-            if os.path.exists(metrics_json_path):
-                try:
-                    with open(metrics_json_path, "r") as f:
-                        metrics = json.load(f)
-                except Exception:
-                    pass
+        if best_model is not None:
+            try:
+                model_dir = best_model.download()
+                models[horizon] = joblib.load(os.path.join(model_dir, "aqi_model.pkl"))
 
-            if not metrics:
-                metrics = getattr(best_model, "training_metrics", {}) or {}
+                metrics = {}
+                metrics_json_path = os.path.join(model_dir, "metrics.json")
+                if os.path.exists(metrics_json_path):
+                    try:
+                        with open(metrics_json_path, "r") as f:
+                            metrics = json.load(f)
+                    except Exception:
+                        pass
 
-            metrics_clean = {str(k).lower(): v for k, v in metrics.items()}
-            r2_val = (
-                metrics_clean.get("r2_score")
-                or metrics_clean.get("r2")
-                or metrics_clean.get("r_squared")
-                or metrics_clean.get("r_square")
-            )
-            rmse_val = metrics_clean.get("rmse") or metrics_clean.get("root_mean_squared_error")
-            mae_val = metrics_clean.get("mae") or metrics_clean.get("mean_absolute_error")
+                if not metrics:
+                    metrics = getattr(best_model, "training_metrics", {}) or {}
 
-            model_metadata[horizon] = {
-                "RMSE": float(rmse_val) if rmse_val is not None else None,
-                "MAE": float(mae_val) if mae_val is not None else None,
-                "R2": float(r2_val) if r2_val is not None else None,
-            }
-        except Exception:
+                metrics_clean = {str(k).lower(): v for k, v in metrics.items()}
+                r2_val = (
+                    metrics_clean.get("r2_score")
+                    or metrics_clean.get("r2")
+                    or metrics_clean.get("r_squared")
+                    or metrics_clean.get("r_square")
+                )
+                rmse_val = metrics_clean.get("rmse") or metrics_clean.get("root_mean_squared_error")
+                mae_val = metrics_clean.get("mae") or metrics_clean.get("mean_absolute_error")
+
+                model_metadata[horizon] = {
+                    "RMSE": float(rmse_val) if rmse_val is not None else None,
+                    "MAE": float(mae_val) if mae_val is not None else None,
+                    "R2": float(r2_val) if r2_val is not None else None,
+                }
+            except Exception:
+                models[horizon] = None
+                model_metadata[horizon] = {"RMSE": None, "MAE": None, "R2": None}
+        else:
             models[horizon] = None
             model_metadata[horizon] = {"RMSE": None, "MAE": None, "R2": None}
 
