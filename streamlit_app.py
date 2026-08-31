@@ -18,7 +18,7 @@ if not HOPSWORKS_API_KEY:
         HOPSWORKS_API_KEY = ""
 
 FG_NAME = "aqi_features"
-FG_VERSION = 8
+FG_VERSION = 9
 
 CITY_INFO = {
     "karachi":   {"label": "Karachi"},
@@ -64,8 +64,6 @@ def load_latest_features():
     fg = fs.get_feature_group(FG_NAME, version=FG_VERSION)
     df = fg.select_all().read()
     df["datetime"] = pd.to_datetime(df["event_time"], unit="ms")
-    # Stored in UTC; convert to Pakistan time (UTC+5) for display since
-    # all 5 cities are in Pakistan.
     df["datetime_local"] = df["datetime"] + pd.Timedelta(hours=5)
 
     numeric_cols = [c for c in FEATURES if c in df.columns]
@@ -80,7 +78,8 @@ def load_city_models(city_name):
     model_metadata = {}
 
     for horizon in HORIZONS:
-        model_name = f"karachi_aqi_predictor_{horizon}"
+        # Dynamically load model for any selected city
+        model_name = f"{city_name.lower()}_aqi_predictor_{horizon}"
         try:
             best_model = mr.get_best_model(model_name, "RMSE", "min")
             model_dir = best_model.download()
@@ -162,19 +161,19 @@ st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-    
+
     header[data-testid="stHeader"] {
         background: transparent !important;
         height: 0px !important;
     }
-    
+
     html, body, [class*="css"], p, span, label, h1, h2, h3, h4, h5, h6 {
         font-family: 'Inter', sans-serif !important;
     }
-    
+
     .stApp {
         background-color: #0B1924 !important;
-        background-image: 
+        background-image:
             linear-gradient(rgba(11, 25, 36, 0.72), rgba(11, 25, 36, 0.72)),
             url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='800' viewBox='0 0 1000 800'%3E%3Cg fill='none' stroke='%2300E5FF' stroke-opacity='0.28'%3E%3Cpath d='M0 180 Q320 280 580 140 T1000 280' stroke-width='6' stroke='%2338BDF8' stroke-opacity='0.45'/%3E%3Cpath d='M240 0 Q280 340 180 580 T380 800' stroke-width='5' stroke='%2338BDF8' stroke-opacity='0.45'/%3E%3Cpath d='M680 0 Q620 380 780 620 T860 800' stroke-width='5.5' stroke='%2338BDF8' stroke-opacity='0.45'/%3E%3Cpath d='M0 680 Q380 560 680 720 T1000 640' stroke-width='6' stroke='%2338BDF8' stroke-opacity='0.45'/%3E%3Cpath d='M0 380 L1000 380 M0 480 L1000 480 M480 0 L480 800 M580 0 L580 800' stroke-width='2.5'/%3E%3Cpath d='M0 90 L1000 90 M0 280 L1000 280 M0 580 L1000 580 M120 0 L120 800 M340 0 L340 800 M820 0 L820 800' stroke-width='1.2' stroke-opacity='0.2'/%3E%3Cpath d='M50 50 L950 750 M950 50 L50 750' stroke-width='1.5' stroke-dasharray='8,8' stroke-opacity='0.2'/%3E%3Ccircle cx='530' cy='430' r='140' stroke-width='2.5' stroke='%2338BDF8' stroke-opacity='0.4'/%3E%3Ccircle cx='530' cy='430' r='280' stroke-width='1.5' stroke-opacity='0.25'/%3E%3C/g%3E%3Cg fill='%2338BDF8' fill-opacity='0.35' font-family='sans-serif' font-size='14' font-weight='bold'%3E%3Ctext x='490' y='425'%3ECENTRAL DISTRICT%3C/text%3E%3Ctext x='180' y='240'%3ENORTH EXPRESSWAY%3C/text%3E%3Ctext x='720' y='600'%3EEAST DIVISION%3C/text%3E%3Ctext x='210' y='710'%3ESOUTH CORRIDOR%3C/text%3E%3C/g%3E%3C/svg%3E");
         background-repeat: repeat;
@@ -195,13 +194,13 @@ st.markdown(
         font-size: 1rem !important;
         text-shadow: 0 2px 4px rgba(0,0,0,0.9);
     }
-    
+
     div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
         background-color: #FFFFFF !important;
         border: 1.5px solid #CBD5E1 !important;
         border-radius: 8px !important;
     }
-    
+
     div[data-testid="stSelectbox"] div[data-baseweb="select"] span,
     div[data-testid="stSelectbox"] div[data-baseweb="select"] div,
     div[data-testid="stSelectbox"] div[data-baseweb="select"] svg {
@@ -473,10 +472,14 @@ def main():
     current_h = st.session_state.selected_horizon
     selected_model = models.get(current_h)
 
-    if selected_model is not None and hasattr(selected_model, "feature_importances_"):
+    has_fi = hasattr(selected_model, "feature_importances_")
+    has_coef = hasattr(selected_model, "coef_")
+
+    if selected_model is not None and (has_fi or has_coef):
+        importances = selected_model.feature_importances_ if has_fi else np.abs(selected_model.coef_)
         fi_df = pd.DataFrame({
             "Feature": FEATURES,
-            "Importance": selected_model.feature_importances_
+            "Importance": importances
         }).sort_values("Importance", ascending=True)
 
         top_feature = fi_df.iloc[-1]["Feature"]
@@ -537,9 +540,11 @@ def main():
             ),
         )
         st.plotly_chart(fig_fi, width="stretch")
+    else:
+        st.info(f"Model for {selected_city_label} ({current_h.upper()}) is active with baseline fallback, or its feature importance is not exposed directly.")
 
     st.markdown('<div style="font-size: 1.6rem; font-weight: 900; color: #FFFFFF; text-shadow: 0 2px 4px rgba(0,0,0,0.8); margin-top: 25px; margin-bottom: 12px;">Data Visualization and EDA</div>', unsafe_allow_html=True)
-    
+
     if "eda_tab" not in st.session_state:
         st.session_state.eda_tab = "City Trends & Distributions"
 
