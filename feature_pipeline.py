@@ -19,18 +19,18 @@ if not HOPSWORKS_API_KEY:
     )
 
 CITIES = {
-    "karachi":    (24.8607, 67.0011),
-    "lahore":     (31.5497, 74.3436),
-    "islamabad":  (33.6844, 73.0479),
-    "peshawar":   (34.0151, 71.5249),
-    "quetta":     (30.1798, 66.9750),
+    "karachi":   (24.8607, 67.0011),
+    "lahore":    (31.5497, 74.3436),
+    "islamabad": (33.6844, 73.0479),
+    "peshawar":  (34.0151, 71.5249),
+    "quetta":    (30.1798, 66.9750),
 }
 
 BACKFILL = os.environ.get("BACKFILL", "false").lower() == "true"
 BACKFILL_DAYS = 730
 
 FG_NAME = "aqi_features"
-FG_VERSION = 8  # v7 had leftover bad future-dated rows from before the forecast-filter fix; v8 is clean
+FG_VERSION = 9  # Bumped to v9 to cleanly apply disabled statistics/monitoring
 
 def get_with_retries(url, params, max_attempts=4, timeout=90):
     last_error = None
@@ -65,10 +65,6 @@ def fetch_raw_data(city_name, latitude, longitude, start_date, end_date, use_for
     df_aq = pd.DataFrame(aq_resp.json()["hourly"])
 
     if use_forecast_api:
-        # The historical archive API lags several days behind real time
-        # (it's reanalysis-based, not live). For recent/incremental
-        # fetches, the forecast API's past_days param gives near-real-time
-        # weather instead, avoiding that lag.
         weather_url = "https://api.open-meteo.com/v1/forecast"
         weather_params = {
             "latitude": latitude,
@@ -93,10 +89,6 @@ def fetch_raw_data(city_name, latitude, longitude, start_date, end_date, use_for
 
     df = pd.merge(df_aq, df_weather, on="time", how="inner")
 
-    # Both APIs are forecast-capable and can return hours that haven't
-    # happened yet (e.g. later today, or tomorrow). Only keep rows that
-    # have actually occurred - anything else isn't real observed data
-    # yet, just a forecast, and shouldn't be treated as "current".
     now_utc = pd.Timestamp.now(tz="UTC").tz_localize(None)
     df["time"] = pd.to_datetime(df["time"])
     df = df[df["time"] <= now_utc].reset_index(drop=True)
@@ -123,11 +115,6 @@ def engineer_features(df: pd.DataFrame, city_name: str, city_id: int) -> pd.Data
     df["pm2_5_lag_24h"] = df["pm2_5"].shift(24)
     df["aqi_rate_of_change"] = df["us_aqi"].diff()
 
-    # Targets are unknown for the most recent hours (the future hasn't
-    # happened yet) - that's expected and fine. We keep those rows
-    # (with NaN targets) so the feature store always has the LATEST
-    # conditions available for prediction; training filters out rows
-    # with unknown targets separately, per horizon.
     df["target_aqi_24h"] = df["us_aqi"].shift(-24)
     df["target_aqi_48h"] = df["us_aqi"].shift(-48)
     df["target_aqi_72h"] = df["us_aqi"].shift(-72)
@@ -139,9 +126,6 @@ def engineer_features(df: pd.DataFrame, city_name: str, city_id: int) -> pd.Data
     df["event_time"] = (df["time"].astype("int64") // 10**6).astype("int64")
 
     df = df.drop(columns=["time"])
-    # Only drop rows missing actual FEATURE values (e.g. the first 24h
-    # of a fresh backfill, before lag features have enough history).
-    # Do NOT drop rows just because a future target isn't known yet.
     df = df.dropna(subset=FEATURE_COLUMNS).reset_index(drop=True)
     return df
 
@@ -157,6 +141,7 @@ def write_to_feature_store(df: pd.DataFrame):
         event_time="event_time",
         online_enabled=False,
         time_travel_format="HUDI",
+        statistics_config=False,
     )
 
     max_attempts = 3
