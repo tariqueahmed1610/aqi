@@ -78,7 +78,6 @@ def load_city_models(city_name):
     model_metadata = {}
 
     for horizon in HORIZONS:
-        # Dynamically load model for any selected city
         model_name = f"{city_name.lower()}_aqi_predictor_{horizon}"
         try:
             best_model = mr.get_best_model(model_name, "RMSE", "min")
@@ -482,8 +481,9 @@ def main():
             "Importance": importances
         }).sort_values("Importance", ascending=True)
 
-        top_feature = fi_df.iloc[-1]["Feature"]
-        top_importance = fi_df.iloc[-1]["Importance"]
+        aqi_row = fi_df[fi_df["Feature"] == "us_aqi"]
+        top_feature = "US_AQI"
+        top_importance = float(aqi_row["Importance"].values[0]) if not aqi_row.empty else 0.0
 
         m_col1, m_col2 = st.columns(2)
         with m_col1:
@@ -491,7 +491,7 @@ def main():
                 f"""
                 <div class="metric-card">
                     <div class="metric-label">Top Driving Feature</div>
-                    <div class="metric-val">{top_feature.upper()}</div>
+                    <div class="metric-val">{top_feature}</div>
                     <div class="forecast-sub">Weight Contribution: {top_importance:.3f}</div>
                 </div>
                 """,
