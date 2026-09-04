@@ -1,4 +1,3 @@
-
 import os
 import time
 import json
@@ -27,7 +26,7 @@ if not HOPSWORKS_API_KEY:
 FG_NAME = "aqi_features"
 FG_VERSION = 9
 FV_NAME = "aqi_fv"
-FV_VERSION = 5
+FV_VERSION = 6
 
 FEATURES = [
     "pm10", "pm2_5", "carbon_monoxide", "nitrogen_dioxide",
@@ -46,7 +45,6 @@ def load_all_data():
     mr = project.get_model_registry()
 
     fg = fs.get_feature_group(FG_NAME, version=FG_VERSION)
-
     query = fg.select(FEATURES + HORIZONS + ["event_time"])
 
     fv = fs.get_or_create_feature_view(
@@ -56,10 +54,12 @@ def load_all_data():
         labels=HORIZONS,
     )
 
-    df = query.read()
+    try:
+        df = query.read(read_options={"engine": "python"})
+    except Exception:
+        df = query.read()
 
     df = df.sort_values("event_time").reset_index(drop=True)
-
     return mr, fv, df
 
 def evaluate(name, model, X_test, y_test):
@@ -87,7 +87,7 @@ def train_and_compare(X_train, X_test, y_train, y_test):
 
     xgb_model = xgb.XGBRegressor(
         n_estimators=300, max_depth=6, learning_rate=0.03,
-        subsample=0.8, colsample_bytree=0.8, random_state=42,
+        subsample=0.8, colsample_bytree=0.8, random_state=42, n_jobs=-1
     )
     xgb_model.fit(X_train, y_train)
     candidates["XGBoost"] = (xgb_model, evaluate("XGBoost", xgb_model, X_test, y_test))
@@ -97,18 +97,17 @@ def train_and_compare(X_train, X_test, y_train, y_test):
     return best_name, best_model, best_metrics
 
 def explain(best_name, best_model, X_test):
-    sample = X_test.iloc[:500]
+    sample = X_test.iloc[:200]
     try:
-        if best_name in ("RandomForest", "XGBoost"):
-            explainer = shap.TreeExplainer(best_model)
-            shap_values = explainer.shap_values(sample)
-        else:
-            explainer = shap.Explainer(best_model, sample)
-            shap_values = explainer(sample).values
+        explainer = shap.Explainer(best_model, sample)
+        shap_res = explainer(sample)
+        vals = shap_res.values
+        if len(vals.shape) == 3:
+            vals = vals[:, :, 0]
 
         importance = pd.DataFrame({
             "feature": FEATURES,
-            "importance": np.abs(shap_values).mean(axis=0),
+            "importance": np.abs(vals).mean(axis=0),
         }).sort_values("importance", ascending=False)
 
         print("  Top 5 features (SHAP):")
@@ -130,7 +129,7 @@ def register_model(mr, horizon_label, best_name, best_model, best_metrics, fv):
     aqi_model = mr.python.create_model(
         name=f"karachi_aqi_predictor_{horizon_label}",
         metrics=best_metrics,
-        description=f"{best_name} model predicting AQI {horizon_label} ahead, all 5 cities (city_id feature).",
+        description=f"{best_name} model predicting AQI {horizon_label} ahead across all 5 cities.",
         feature_view=fv,
     )
 
@@ -155,14 +154,11 @@ def main():
         horizon_label = HORIZON_LABELS[target_col]
         print(f"\n=== Horizon: {horizon_label} (target: {target_col}) ===")
 
-        # Rows near "now" don't have a known target yet (the future
-        # hasn't happened) - only train/evaluate on rows where the
-        # actual outcome is known.
         known_df = df.dropna(subset=[target_col]).reset_index(drop=True)
-        split_idx = int(len(known_df) * 0.80)
-
-        train_df = known_df.iloc[:split_idx]
-        test_df = known_df.iloc[split_idx:]
+        
+        cutoff = known_df["event_time"].quantile(0.80)
+        train_df = known_df[known_df["event_time"] <= cutoff]
+        test_df = known_df[known_df["event_time"] > cutoff]
 
         X_train, y_train = train_df[FEATURES], train_df[target_col]
         X_test, y_test = test_df[FEATURES], test_df[target_col]
