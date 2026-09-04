@@ -25,7 +25,7 @@ if not HOPSWORKS_API_KEY:
     )
 
 FG_NAME = "aqi_features"
-FG_VERSION = 8
+FG_VERSION = 9
 FV_NAME = "aqi_fv"
 FV_VERSION = 5
 
