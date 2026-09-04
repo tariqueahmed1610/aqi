@@ -57,7 +57,7 @@ def categorize_aqi(value):
 def get_project():
     return hopsworks.login(host="eu-west.cloud.hopsworks.ai", api_key_value=HOPSWORKS_API_KEY)
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_latest_features():
     project = get_project()
     fs = project.get_feature_store()
@@ -70,7 +70,7 @@ def load_latest_features():
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     return df.sort_values("datetime")
 
-@st.cache_resource(ttl=86400, show_spinner=False)
+@st.cache_resource(ttl=60, show_spinner=False)
 def load_city_models(city_name):
     project = get_project()
     mr = project.get_model_registry()
@@ -84,18 +84,25 @@ def load_city_models(city_name):
             f"karachi_aqi_predictor_{horizon}",
         ]
         
-        best_model = None
+        target_model = None
         for name in candidate_names:
             try:
-                best_model = mr.get_best_model(name, "RMSE", "min")
-                if best_model is not None:
+                # Force version 19
+                target_model = mr.get_model(name, version=19)
+                if target_model is not None:
                     break
             except Exception:
-                continue
+                try:
+                    all_versions = mr.get_models(name)
+                    if all_versions:
+                        target_model = all_versions[-1]
+                        break
+                except Exception:
+                    continue
 
-        if best_model is not None:
+        if target_model is not None:
             try:
-                model_dir = best_model.download()
+                model_dir = target_model.download()
                 models[horizon] = joblib.load(os.path.join(model_dir, "aqi_model.pkl"))
 
                 metrics = {}
@@ -108,7 +115,7 @@ def load_city_models(city_name):
                         pass
 
                 if not metrics:
-                    metrics = getattr(best_model, "training_metrics", {}) or {}
+                    metrics = getattr(target_model, "training_metrics", {}) or {}
 
                 metrics_clean = {str(k).lower(): v for k, v in metrics.items()}
                 r2_val = (
