@@ -87,6 +87,7 @@ def load_city_models(city_name):
         target_model = None
         for name in candidate_names:
             try:
+                # Force version 19
                 target_model = mr.get_model(name, version=19)
                 if target_model is not None:
                     break
