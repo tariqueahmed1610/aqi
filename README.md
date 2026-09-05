@@ -1,5 +1,7 @@
 # AQI Predictor
 
+**Live Dashboard:** https://aqi-predictor-tarique.streamlit.app/
+
 Predicts Air Quality Index 1, 2, and 3 days ahead for 5 Pakistani cities
 (Karachi, Lahore, Islamabad, Peshawar, Quetta), using a serverless
 feature store / model registry / dashboard architecture.
