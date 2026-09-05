@@ -15,7 +15,7 @@ if not HOPSWORKS_API_KEY:
     raise RuntimeError("HOPSWORKS_API_KEY not found. Set it as a Colab Secret or env var.")
 
 FG_NAME = "aqi_features"
-FG_VERSION = 6
+FG_VERSION = 9
 
 CITIES = {0: "karachi", 1: "lahore", 2: "islamabad", 3: "peshawar", 4: "quetta"}
 
@@ -24,7 +24,7 @@ sns.set_style("whitegrid")
 
 
 def load_data():
-    project = hopsworks.login(api_key_value=HOPSWORKS_API_KEY)
+    project = hopsworks.login(host="eu-west.cloud.hopsworks.ai", api_key_value=HOPSWORKS_API_KEY)
     fs = project.get_feature_store()
     fg = fs.get_feature_group(FG_NAME, version=FG_VERSION)
     df = fg.select_all().read()
